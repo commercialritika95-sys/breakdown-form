@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Breakdown Voice Record</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;800&family=IBM+Plex+Mono:wght@500&display=swap">
+<link href="https://www.howtocode.xyz/pg-gridv2.css" rel="stylesheet" type="text/css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: one sticky "now asking" panel on top, the F-MTN-07 card below as the record being filled */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#1b232c; --muted:#5d6b7a; --line:#cfd7df;
+  --accent:#e8a317; --accent-ink:#1b1400; --steel:#2f4a63; --live:#c0392b; --ok:#1e8449;
+  --f-body:"Mukta","Noto Sans Devanagari","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12171d; --panel:#1b232c; --ink:#e7edf3; --muted:#9aa8b6; --line:#2e3a46;
+  --accent:#f0b43a; --accent-ink:#1b1400; --steel:#8fb3d4; --live:#ff6b5b; --ok:#4cc38a; color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 var(--f-body)}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:12px 120px}
+header.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding-block:6px 12px}
+header.top h1{margin:0;font-size:1.25rem;font-weight:800;letter-spacing:.01em}
+header.top .code{font:500 .8rem var(--f-mono);color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--panel);color:var(--ink);padding:6px 12px;font:600 .95rem var(--f-body);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--steel);color:var(--panel)}
+
+/* Asking panel */
+.ask{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--panel);border:2px solid var(--steel);
+  border-radius:12px;padding:14px 16px;display:grid;gap:10px;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.ask .meta{display:flex;justify-content:space-between;gap:8px;font-size:.85rem;color:var(--muted)}
+.ask .q{font-size:1.45rem;font-weight:800;line-height:1.25;text-wrap:balance}
+.ask .q .tag{display:inline-block;min-width:2ch;margin-right:.4ch;color:var(--steel)}
+.heard{min-height:2.6em;padding:8px 10px;border-radius:8px;background:var(--bg);font-size:1.1rem}
+.heard.listening{outline:2px solid var(--live)}
+.heard .interim{color:var(--muted)}
+.status{display:flex;align-items:center;gap:8px;font-weight:600}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--muted)}
+.dot.speak{background:var(--steel)} .dot.listen{background:var(--live);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.listen{animation:none}}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;padding:10px 14px;
+  font:600 1rem var(--f-body);cursor:pointer;min-height:48px}
+.btn:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:800;flex:1 1 180px}
+.btn.stop{background:var(--live);color:#fff;border-color:var(--live)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.hint{font-size:.85rem;color:var(--muted)}
+
+/* Form card */
+.card{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card h2{margin:0;padding:10px 16px;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  background:var(--bg);border-bottom:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.f{display:grid;gap:2px;padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer;min-width:0}
+.grid .f{border-right:1px solid var(--line)}
+.f label{font-size:.85rem;color:var(--muted);cursor:pointer}
+.f label b{color:var(--steel);font-family:var(--f-mono);margin-right:4px}
+.f input,.f textarea{width:100%;border:0;background:transparent;color:var(--ink);font:1.05rem var(--f-body);padding:2px 0;resize:vertical}
+.f textarea{min-height:2.2em}
+.f.active{background:color-mix(in srgb,var(--accent) 16%,var(--panel));box-shadow:inset 4px 0 0 var(--accent)}
+.f.done label::after{content:" ✓";color:var(--ok);font-weight:800}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--panel);border-top:1px solid var(--line);
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.bar .in{max-width:900px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bar .count{font:500 .9rem var(--f-mono);color:var(--muted);margin-right:auto}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--panel);
+  padding:10px 16px;border-radius:8px;font-weight:600;z-index:9;max-width:90vw}
+.warn{margin-top:10px;padding:10px 14px;border-radius:8px;border:1px solid var(--live);color:var(--live);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>ब्रेकडाउन रिकॉर्ड · A.S. Engineering</h1>
+      <div class="code">F-MTN-07 Rev.00 · Voice entry</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+    <div class="seg" role="group" aria-label="लिखने का तरीका">
+      <button id="modeDev" aria-pressed="true">देवनागरी</button>
+      <button id="modeLat" aria-pressed="false">Hinglish</button>
+    </div></div>
+  </header>
+
+  <div id="noSupport" class="warn" hidden>इस ब्राउज़र में आवाज़ से लिखना नहीं चलता। कृपया Google Chrome (Android या कंप्यूटर) में खोलें। टाइप करके भी भर सकते हैं।</div>
+
+  <div id="fileWarn" class="warn" hidden>यह फ़ाइल कंप्यूटर से खुली है (file://)। Chrome ऐसी फ़ाइल के लिए माइक की अनुमति याद नहीं रखता, इसलिए हर बार "शुरू करें" दबाने पर एक बार पूछेगा। हमेशा के लिए ठीक करने के लिए इसे वेब लिंक (https) से खोलें।</div>
+
+  <section class="ask" aria-live="polite">
+    <div class="meta"><span id="progress">—</span><span class="status"><span id="dot" class="dot"></span><span id="statusTxt">तैयार</span></span></div>
+    <div class="q" id="qText"><span class="tag"></span>"शुरू करें" दबाइए</div>
+    <div class="heard" id="heard"><span class="final"></span><span class="interim"></span></div>
+    <div class="controls">
+      <button class="btn primary" id="startBtn">▶ शुरू करें</button>
+      <button class="btn" id="repeatBtn" disabled>🔊 प्रश्न दोबारा सुनें</button>
+      <button class="btn" id="reBtn" disabled>🎤 दोबारा बोलें</button>
+      <button class="btn" id="backBtn" disabled>◀ पीछे</button>
+      <button class="btn" id="nextBtn" disabled>अगला ▶</button>
+    </div>
+    <div class="hint">बोलकर भी चला सकते हैं: <b>"अगला"</b> · <b>"पीछे"</b> · <b>"दोबारा"</b> · <b>"छोड़ो"</b> (खाली छोड़ें). किसी भी खाने पर टैप करें तो वही प्रश्न पूछा जाएगा।</div>
+  </section>
+
+  <div id="form"></div>
+</div>
+
+<div class="bar"><div class="in">
+  <span class="count" id="count">सेव रिकॉर्ड: 0</span>
+  <button class="btn" id="newBtn">नया फॉर्म</button>
+  <button class="btn" id="saveBtn" style="border-color:var(--ok);color:var(--ok)">✓ रिकॉर्ड सेव करें</button>
+  <button class="btn primary" id="xlsBtn" style="flex:0 1 auto">⬇ Excel डाउनलोड</button>
+</div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ---------- Form definition (F-MTN-07) ---------- */
+const SECTIONS = [
+  {title:"मशीन विवरण", grid:true, fields:[
+    {id:"rec_no", label:"Breakdown Record No", say:"ब्रेकडाउन रिकॉर्ड नंबर बताइए"},
+    {id:"dept", label:"Department", say:"डिपार्टमेंट बताइए", def:"CNC Department", skipIfFilled:true},
+    {id:"mc_name", label:"Machine Name", say:"मशीन का नाम बताइए"},
+    {id:"mc_no", label:"Machine No.", say:"मशीन नंबर बताइए"},
+    {id:"year", label:"Year", say:"साल बताइए", def:"auto-fy", skipIfFilled:true},
+    {id:"date", label:"Date / Time", say:"तारीख और समय बताइए", def:"auto-now", skipIfFilled:true},
+  ]},
+  {title:"प्रश्न A – L", grid:false, fields:[
+    {id:"A", tag:"A", label:"प्रॉब्लम क्या हुआ?", say:"ए. प्रॉब्लम क्या हुआ?", long:true},
+    {id:"B", tag:"B", label:"प्रॉब्लम क्यूँ हुआ (कारण)?", say:"बी. प्रॉब्लम क्यों हुआ? कारण बताइए", long:true},
+    {id:"C", tag:"C", label:"प्रॉब्लम को दूर करने के लिए क्या किया?", say:"सी. प्रॉब्लम को दूर करने के लिए क्या किया?", long:true},
+    {id:"D", tag:"D", label:"उससे रिजल्ट क्या मिला?", say:"डी. उससे रिजल्ट क्या मिला?", long:true},
+    {id:"E", tag:"E", label:"दुबारा नहीं होने के लिए क्या किया?", say:"ई. दुबारा नहीं होने के लिए क्या किया?", long:true},
+    {id:"F", tag:"F", label:"पकड़ में कैसे आएगा?", say:"एफ. पकड़ में कैसे आएगा?", long:true},
+    {id:"G", tag:"G", label:"काम रोकेंगे कैसे (production)?", say:"जी. काम रोकेंगे कैसे? प्रोडक्शन", long:true},
+    {id:"H", tag:"H", label:"कौन सा पार्ट बदला?", say:"एच. कौन सा पार्ट बदला?", long:true},
+    {id:"I", tag:"I", label:"कितने पैसे का था?", say:"आई. कितने पैसे का था?", long:true},
+    {id:"J", tag:"J", label:"ये प्रॉब्लम का नेक्स्ट फ्रीक्वेंसी?", say:"जे. ये प्रॉब्लम की नेक्स्ट फ्रीक्वेंसी क्या है?", long:true},
+    {id:"K", tag:"K", label:"प्रोसेस इम्प्रूवमेंट", say:"के. प्रोसेस इम्प्रूवमेंट क्या किया?", long:true},
+    {id:"L", tag:"L", label:"Remarks", say:"एल. कोई रिमार्क्स?", long:true},
+  ]},
+  {title:"पार्ट और शिफ्ट", grid:true, fields:[
+    {id:"part", label:"Part Name / Number", say:"पार्ट का नाम या नंबर बताइए"},
+    {id:"opn", label:"OPN No", say:"ऑपरेशन नंबर बताइए"},
+    {id:"operator", label:"Operator Name", say:"ऑपरेटर का नाम बताइए"},
+    {id:"stop", label:"M/C Stop Time / Date", say:"मशीन कब बंद हुई? तारीख और समय बताइए"},
+    {id:"start", label:"M/C Start Time / Date", say:"मशीन कब चालू हुई? तारीख और समय बताइए"},
+    {id:"si1", label:"SI 1st Shift", say:"पहली शिफ्ट के एस आई का नाम बताइए"},
+    {id:"si2", label:"SI 2nd Shift", say:"दूसरी शिफ्ट के एस आई का नाम बताइए"},
+  ]},
+];
+const FIELDS = SECTIONS.flatMap(s=>s.fields);
+
+/* ---------- Devanagari → Hinglish ---------- */
+const V={"अ":"a","आ":"aa","इ":"i","ई":"ee","उ":"u","ऊ":"oo","ऋ":"ri","ए":"e","ऐ":"ai","ओ":"o","औ":"au","ऑ":"o","ऍ":"e"};
+const M={"ा":"aa","ि":"i","ी":"ee","ु":"u","ू":"oo","ृ":"ri","े":"e","ै":"ai","ो":"o","ौ":"au","ॉ":"o","ॅ":"e"};
+const C={"क":"k","ख":"kh","ग":"g","घ":"gh","ङ":"n","च":"ch","छ":"chh","ज":"j","झ":"jh","ञ":"n","ट":"t","ठ":"th","ड":"d","ढ":"dh","ण":"n",
+"त":"t","थ":"th","द":"d","ध":"dh","न":"n","प":"p","फ":"ph","ब":"b","भ":"bh","म":"m","य":"y","र":"r","ल":"l","व":"v","श":"sh","ष":"sh","स":"s","ह":"h",
+"क़":"q","ख़":"kh","ग़":"g","ज़":"z","ड़":"r","ढ़":"rh","फ़":"f","य़":"y"};
+const NUK={"क":"q","ज":"z","फ":"f","ड":"r","ढ":"rh"};
+const MISC={"ं":"n","ँ":"n","ः":"h","।":".","॥":".","०":"0","१":"1","२":"2","३":"3","४":"4","५":"5","६":"6","७":"7","८":"8","९":"9"};
+const isDev=ch=>ch && /[ऀ-ॿ]/.test(ch) && !/[।॥०-९]/.test(ch);
+function toHinglish(s){
+  const ch=[...s.normalize("NFC")]; let out="";
+  for(let i=0;i<ch.length;i++){
+    const c=ch[i];
+    if(C[c]){
+      let base=C[c];
+      if(ch[i+1]==="़"){base=NUK[c]||base;i++;}
+      out+=base; const n=ch[i+1];
+      if(M[n]){let m=M[n];i++; if(!isDev(ch[i+1])||ch[i+1]==="ं"&&!isDev(ch[i+2])) m=m==="aa"?"a":m==="ee"?"i":m==="oo"?"u":m; out+=m;}
+      else if(n==="्"){i++;}
+      else if(isDev(n)) out+="a";          // inherent vowel mid-word; dropped at word end
+    } else if(V[c]){ let v=V[c]; if(!isDev(ch[i+1])) v=v==="aa"?"a":v==="ee"?"i":v; out+=v; }
+    else if(M[c]) out+=M[c];
+    else if(MISC[c]!==undefined) out+=MISC[c];
+    else if(c==="़"||c==="्") {}
+    else out+=c;
+  }
+  return out.replace(/(^|[.!?]\s*)([a-z])/g,(m,p,l)=>p+l.toUpperCase());
+}
+
+/* ---------- State ---------- */
+let mode="dev", cur=-1, running=false, rec=null, voices=[], silenceT=null, nextT=null, heardFinal="";
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let saved=store.get("bd_records",[]);
+try{ if(localStorage.getItem("bd_mode")==="lat") mode="lat"; }catch(e){}
+
+function fy(){const d=new Date(),y=d.getFullYear(),s=d.getMonth()>=3?y:y-1;return s+"-"+String(s+1).slice(2)}
+function now(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`}
+
+/* ---------- Render form ---------- */
+function buildForm(){
+  $("form").innerHTML=SECTIONS.map(s=>`<div class="card"><h2>${s.title}</h2><div class="${s.grid?"grid":""}">`+
+    s.fields.map(f=>`<div class="f" data-id="${f.id}"><label for="in_${f.id}">${f.tag?`<b>${f.tag})</b>`:""}${f.label}</label>`+
+      (f.long?`<textarea id="in_${f.id}" rows="2"></textarea>`:`<input id="in_${f.id}" autocomplete="off">`)+`</div>`).join("")+`</div></div>`).join("");
+  document.querySelectorAll(".f").forEach(el=>{
+    el.addEventListener("click",e=>{ if(e.target.tagName==="TEXTAREA"||e.target.tagName==="INPUT") return;
+      jump(FIELDS.findIndex(f=>f.id===el.dataset.id)); });
+    const inp=el.querySelector("input,textarea");
+    inp.addEventListener("input",()=>{el.classList.toggle("done",!!inp.value.trim());draft();});
+  });
+  const d=store.get("bd_draft",null);
+  resetFields(d);
+}
+function resetFields(d){
+  FIELDS.forEach(f=>{const inp=$("in_"+f.id);
+    let v=d&&d[f.id]!=null?d[f.id]:(f.def==="auto-fy"?fy():f.def==="auto-now"?now():(f.def||""));
+    inp.value=v; inp.closest(".f").classList.toggle("done",!!v.trim()); inp.closest(".f").classList.remove("active");});
+}
+function values(){const o={};FIELDS.forEach(f=>o[f.id]=$("in_"+f.id).value.trim());return o}
+function draft(){store.set("bd_draft",values())}
+
+/* ---------- Speech ----------
+   ONE recognition session is opened when you press Start and kept running for the whole form.
+   Chrome asks for mic permission only when a session starts, so this stops the repeated prompts.
+   While the question is being read aloud, whatever the mic hears is ignored. */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR) $("noSupport").hidden=false;
+if(location.protocol==="file:") $("fileWarn").hidden=false;
+function loadVoices(){voices=speechSynthesis.getVoices()}
+if("speechSynthesis" in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;}
+function speak(text){return new Promise(res=>{
+  if(!("speechSynthesis" in window)){res();return}
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.lang="hi-IN"; u.rate=0.95;
+  const v=voices.find(v=>v.lang==="hi-IN")||voices.find(v=>/^hi/i.test(v.lang)); if(v) u.voice=v;
+  let done=false; const fin=()=>{if(!done){done=true;res()}};
+  u.onend=fin; u.onerror=fin; setStatus("speak","बोल रहा है…"); speechSynthesis.speak(u);
+  setTimeout(fin, Math.max(4000,text.length*180)); // safety if onend never fires
+})}
+function setStatus(kind,txt){$("dot").className="dot "+(kind||"");$("statusTxt").textContent=txt}
+function showHeard(fin,int){$("heard").querySelector(".final").textContent=fin;$("heard").querySelector(".interim").textContent=int?(" "+int):""}
+
+let accepting=false, consumed=0, lastLen=0, noSpeechT=null, beginT=null, gotText="";
+function ensureRec(){
+  if(!SR||rec) return;
+  const r=new SR(); r.lang="hi-IN"; r.continuous=true; r.interimResults=true;
+  consumed=0; lastLen=0;
+  r.onresult=e=>{
+    lastLen=e.results.length;
+    if(!accepting) return;                       // question still being read: ignore
+    let fin="",int="";
+    for(let i=consumed;i<e.results.length;i++){const t=e.results[i][0].transcript.trim();
+      if(e.results[i].isFinal) fin+=(fin?" ":"")+t; else int+=(int?" ":"")+t;}
+    gotText=(fin+" "+int).trim(); showHeard(fin,int);
+    if(gotText){ clearTimeout(noSpeechT); clearTimeout(silenceT); silenceT=setTimeout(()=>finalize(gotText),2200); } // 2.2 s pause = answer done
+  };
+  r.onerror=e=>{
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"){toast("माइक की अनुमति दीजिए (ब्राउज़र में 🔒 आइकन)");stopAll();}
+    else if(e.error==="network"){toast("इंटरनेट चेक करें — आवाज़ पहचान के लिए इंटरनेट चाहिए");}
+  };
+  r.onend=()=>{                                   // Chrome closes long sessions by itself; reopen quietly
+    if(rec!==r) return; rec=null;
+    if(accepting&&gotText){ finalize(gotText); }
+    if(running) setTimeout(()=>{ if(running&&!rec){ ensureRec(); } },250);
+  };
+  rec=r; try{r.start()}catch(e){}
+}
+function beginAnswer(){
+  clearTimeout(beginT);
+  beginT=setTimeout(()=>{                         // short gap so the tail of the spoken question isn't captured
+    if(!running) return;
+    ensureRec(); consumed=lastLen; gotText=""; accepting=true; showHeard("","");
+    setStatus("listen","सुन रहा है… बोलिए"); $("heard").classList.add("listening");
+    clearTimeout(noSpeechT);
+    noSpeechT=setTimeout(()=>{ if(accepting&&!gotText){ pauseInput(); setStatus("","कुछ सुनाई नहीं दिया — 🎤 दोबारा बोलें दबाइए"); } },10000);
+  },400);
+}
+function pauseInput(){accepting=false;clearTimeout(silenceT);clearTimeout(noSpeechT);clearTimeout(beginT);$("heard").classList.remove("listening")}
+function finalize(text){ if(!accepting) return; pauseInput(); consumed=lastLen; gotText=""; handleAnswer(text.trim()); }
+function stopAll(){ running=false; pauseInput(); clearTimeout(nextT);
+  if("speechSynthesis" in window) speechSynthesis.cancel();
+  if(rec){const r=rec;rec=null;try{r.abort()}catch(e){}} updateBtns(); }
+
+const CMD={next:/^(अगला|आगे|next|नेक्स्ट)$/i, back:/^(पीछे|back|बैक)$/i, again:/^(दोबारा|फिर से|repeat|रिपीट)$/i, skip:/^(छोड़ो|छोड़ दो|खाली|नहीं पता|skip|स्किप)$/i};
+function handleAnswer(t){
+  const clean=t.replace(/[।.,!?]/g,"").trim();
+  if(CMD.next.test(clean)) return go(cur+1);
+  if(CMD.back.test(clean)) return go(cur-1);
+  if(CMD.again.test(clean)) return ask();
+  if(CMD.skip.test(clean)){ $("in_"+FIELDS[cur].id).value=""; mark(); return go(cur+1); }
+  const out=mode==="lat"?toHinglish(t):t;
+  const inp=$("in_"+FIELDS[cur].id); inp.value=out; mark(); draft();
+  setStatus("","लिख दिया ✓"); clearTimeout(nextT); nextT=setTimeout(()=>running&&go(cur+1),1300);
+}
+function mark(){const el=$("in_"+FIELDS[cur].id);el.closest(".f").classList.toggle("done",!!el.value.trim())}
+
+/* ---------- Flow ---------- */
+async function ask(){
+  clearTimeout(nextT); pauseInput(); ensureRec(); const f=FIELDS[cur];
+  document.querySelectorAll(".f").forEach(el=>el.classList.toggle("active",el.dataset.id===f.id));
+  const el=document.querySelector(`.f[data-id="${f.id}"]`);
+  el.scrollIntoView({block:"center",behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth"});
+  $("qText").innerHTML=`<span class="tag">${f.tag?f.tag+")":""}</span>`+f.label;
+  $("progress").textContent=`प्रश्न ${cur+1} / ${FIELDS.length}`;
+  showHeard($("in_"+f.id).value.trim(),"");
+  updateBtns();
+  await speak(f.say); if(!running||FIELDS[cur]!==f) return;
+  beginAnswer();
+}
+function go(i){
+  // skip auto-filled fields (dept, year, date) when moving forward in the flow
+  while(i<FIELDS.length && i>cur && FIELDS[i].skipIfFilled && $("in_"+FIELDS[i].id).value.trim()) i++;
+  if(i<0) i=0;
+  if(i>=FIELDS.length){ finish(); return }
+  cur=i; ask();
+}
+function jump(i){ if(i<0) return; running=true; cur=i; ask(); }
+async function finish(){
+  stopAll(); document.querySelectorAll(".f").forEach(el=>el.classList.remove("active"));
+  $("qText").innerHTML=`<span class="tag"></span>सभी प्रश्न पूरे हुए`; $("progress").textContent="पूरा";
+  showHeard("जाँच लीजिए, फिर नीचे “रिकॉर्ड सेव करें” दबाइए।","");
+  await speak("सभी प्रश्न पूरे हुए। जाँच कर के रिकॉर्ड सेव करें।"); setStatus("","पूरा");
+}
+function updateBtns(){
+  $("startBtn").textContent=running?"■ रोकें":(cur>=0?"▶ जारी रखें":"▶ शुरू करें");
+  $("startBtn").classList.toggle("stop",running);
+  ["repeatBtn","reBtn","backBtn","nextBtn"].forEach(id=>$(id).disabled=cur<0);
+}
+$("startBtn").onclick=()=>{
+  if(running){ stopAll(); setStatus("","रुका हुआ"); return }
+  running=true; ensureRec(); if(cur<0){go(0)} else ask();
+};
+$("repeatBtn").onclick=()=>{running=true;ask()};
+$("reBtn").onclick=()=>{running=true;clearTimeout(nextT);if("speechSynthesis" in window) speechSynthesis.cancel();pauseInput();ensureRec();beginAnswer();updateBtns()};
+$("backBtn").onclick=()=>{running=true;go(cur-1)};
+$("nextBtn").onclick=()=>{running=true;cur=Math.min(cur,FIELDS.length-1);go(cur+1)};
+/* ---------- Script mode ---------- */
+function setMode(m){mode=m;try{localStorage.setItem("bd_mode",m)}catch(e){}
+  $("modeDev").setAttribute("aria-pressed",m==="dev");$("modeLat").setAttribute("aria-pressed",m==="lat");
+  if(m==="lat"){FIELDS.forEach(f=>{const i=$("in_"+f.id);if(/[ऀ-ॿ]/.test(i.value)) i.value=toHinglish(i.value)});draft();}
+}
+$("modeDev").onclick=()=>setMode("dev"); $("modeLat").onclick=()=>setMode("lat");
+
+/* ---------- Save / Excel ---------- */
+function toast(t){const el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(el._t);el._t=setTimeout(()=>el.hidden=true,2600)}
+/* ---------- Google Sheet sync ----------
+   Paste the Apps Script Web app URL here once so every device uses it without setup. */
+const SHEET_URL=Object.freeze("https://script.google.com/macros/s/AKfycbzDrmqDw2L9WLQyWwndY-bQxmRgnCdxjlHzqxxavEHXJsDhGgYalkdRqEPDtR-Al6Q/exec"); // fixed company sheet — not changeable from the page
+function sheetUrl(){return SHEET_URL}
+try{localStorage.removeItem("bd_sheet")}catch(e){}
+const HEAD=["Record ID"].concat(FIELDS.map(f=>f.tag?`${f.tag}) ${f.label}`:f.label),["Saved At","Device"]);
+function rowOf(r){return [r._id].concat(FIELDS.map(f=>r[f.id]||""),[r._saved||"",r._dev||""])}
+let syncing=false;
+async function syncPending(silent){
+  const url=sheetUrl(); const pend=saved.filter(r=>!r._synced);
+  if(!url||!pend.length||syncing||navigator.onLine===false){refreshCount();return}
+  syncing=true; refreshCount();
+  try{
+    const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({headers:HEAD,rows:pend.map(rowOf)})});
+    const j=await res.json(); if(!j.ok) throw new Error(j.error||"error");
+    const ids=new Set(pend.map(r=>r._id)); saved.forEach(r=>{if(ids.has(r._id)) r._synced=true});
+    store.set("bd_records",saved); if(!silent) toast("Google Sheet में भेजा ✓");
+  }catch(e){ if(!silent) toast("शीट में नहीं गया — रिकॉर्ड फ़ोन में सुरक्षित है, बाद में फिर भेजेंगे"); }
+  syncing=false; refreshCount();
+}
+saved.forEach(r=>{ if(!r._id) r._id="BD-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6); });
+function refreshCount(){
+  const p=saved.filter(r=>!r._synced).length;
+  $("count").textContent=`सेव: ${saved.length}`+(sheetUrl()?` · शीट में: ${saved.length-p}`+(p?` · बाकी: ${p}`:""):" · शीट जुड़ी नहीं")+(syncing?" · भेज रहा है…":"");
+}
+window.addEventListener("online",()=>syncPending(true));
+setInterval(()=>syncPending(true),60000);
+$("saveBtn").onclick=()=>{
+  const v=values(); if(!v.A&&!v.mc_no){toast("कम से कम मशीन नंबर और प्रश्न A भरिए");return}
+  v._saved=now(); v._id="BD-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6);
+  v._dev=(navigator.userAgent.match(/Android|iPhone|Windows|Mac|Linux/)||["?"])[0]; v._synced=false;
+  saved.push(v); store.set("bd_records",saved); refreshCount(); toast("रिकॉर्ड सेव हुआ ✓ ("+saved.length+")");
+  if(sheetUrl()) syncPending();
+};
+$("newBtn").onclick=()=>{ stopAll(); cur=-1; store.set("bd_draft",null); resetFields(null);
+  $("qText").innerHTML=`<span class="tag"></span>"शुरू करें" दबाइए`; showHeard("",""); $("progress").textContent="—"; setStatus("","तैयार"); updateBtns(); window.scrollTo(0,0); };
+$("xlsBtn").onclick=()=>{
+  const rows=saved.length?saved:[ {...values(),_saved:"(not saved)"} ];
+  if(!window.XLSX){toast("Excel बनाने के लिए इंटरनेट चाहिए");return}
+  const head=HEAD;
+  const data=rows.map(rowOf);
+  const ws=XLSX.utils.aoa_to_sheet([head,...data]);
+  ws["!cols"]=[{wch:16}].concat(FIELDS.map(f=>({wch:f.long?40:18})),[{wch:18},{wch:10}]);
+  ws["!freeze"]={xSplit:0,ySplit:1};
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Breakdown "+fy());
+  const d=new Date(); XLSX.writeFile(wb,`Breakdown_Records_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}.xlsx`);
+  toast(saved.length?`${saved.length} रिकॉर्ड डाउनलोड हुए`:"अभी का फॉर्म डाउनलोड हुआ (सेव नहीं था)");
+};
+
+buildForm(); setMode(mode); store.set("bd_records",saved); refreshCount(); updateBtns(); syncPending(true);
+</script>
+</body>
+</html>
